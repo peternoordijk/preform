@@ -4,26 +4,26 @@ $ npm install preform
 
 This library is still in beta. I will take the time to write some docs later. Basically the entire api can be found with the example code below. Creating the library I focused on the following:
 
-- efficient (no unnecessary render calls from react)
-- lightweight (less than 10kb)
-- stable (no mutable state or weird breaking changes)
+- Efficiency (no unnecessary render calls from react)
+- Lightweight (less than 10kb)
+- Stable (no mutable state or weird breaking changes)
 - Using only React hooks, but with backwards compatibility using higher order components
 - TypeScript support
 
 Other libraries might have more features out of the box. With this library it's up to you to create your own components.
 
 ```jsx
-import * as React from "react";
+import React, { useCallback } from "react";
 import { render } from "react-dom";
-import { asForm, useField } from "preform";
-
+import { asForm, useField, FormSettingsProvider } from "./preform";
+ 
 const SomeInputField = ({ field, initialValue, validator }) => {
   const { error, setValue, validate, value } = useField({
     field,
     initialValue,
     validator
   });
-
+ 
   return (
     <div>
       <input
@@ -36,9 +36,11 @@ const SomeInputField = ({ field, initialValue, validator }) => {
     </div>
   );
 };
+ 
+function App({ asSubmit, formState, setValue, validate }) {
+  const onClickResetValue = useCallback(() => setValue('woop', 'something'), []);
+  const onClickValidate = useCallback(() => validate(), []);
 
-function App({ asSubmit, formState }) {
-  console.log("render", formState);
   return (
     <form
       className="App"
@@ -56,17 +58,27 @@ function App({ asSubmit, formState }) {
       />
       <SomeInputField
         field="woop"
-        initialValue="Blo"
+        initialValue="something"
         validator={value => (value.length > 2 ? null : "error")}
       />
       <button type="submit">Submit</button>
+      <button type="button" onClick={onClickResetValue}>Set 3th Value</button>
+      <button type="button" onClick={onClickValidate}>Validate</button>
       <p>{formState.dirty ? "dirty" : "pristine"}</p>
     </form>
   );
 }
-
+ 
 const AppWrapper = asForm(App);
-
+ 
 const rootElement = document.getElementById("root");
-render(<AppWrapper />, rootElement);
+render(
+  <FormSettingsProvider settings={{
+    onSubmitError(formState) {
+      console.error(formState);
+    }
+  }}>
+    <AppWrapper />
+  </FormSettingsProvider>
+, rootElement);
 ```

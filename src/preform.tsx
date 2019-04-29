@@ -62,6 +62,8 @@ interface FormValidators {
 
 interface AsFormInjectedProps {
   formState: FormState;
+  validate: (makePristine?: boolean) => Promise<FormState>;
+  setValue: (field: string, value: any, makePristine?: boolean) => void;
   asSubmit: AsSubmit;
 }
 
@@ -80,6 +82,12 @@ interface UseFieldResponse<V> {
   error?: Error | null;
 }
 
+interface FormSettings {
+  onSubmitError: (state: FormState) => any;
+}
+
+const FormSettingsContext = React.createContext<FormSettings|null>(null);
+
 const FormContext = React.createContext<
   | [FormState, FormValidators, React.Dispatch<React.SetStateAction<FormState>>]
   | null
@@ -97,6 +105,8 @@ export const asForm = <P extends object>(
     dirty: false,
     pristine: true
   });
+
+  const formSettings = useContext(FormSettingsContext);
 
   const validatorsRef = useRef<FormValidators>({
     fieldValidators: {},
@@ -179,24 +189,32 @@ export const asForm = <P extends object>(
           errors
         };
       } else {
-        setState(prevState => ({
-          ...prevState,
-          valid: true,
-          invalid: false,
-          loading: false,
-          errors: {},
-          pristine: true,
-          dirty: false
-        }));
-        return {
+        setState(prevState => {
+          const nextState = {
+            ...prevState,
+            valid: true,
+            invalid: false,
+            loading: false,
+            errors: {}
+          };
+          if (makePristine) {
+            nextState.pristine = true;
+            nextState.dirty = false;
+          }
+          return nextState;
+        });
+        const newState = {
           ...state,
           valid: true,
           invalid: false,
           loading: false,
-          errors: {},
-          pristine: true,
-          dirty: false
+          errors: {}
         };
+        if (makePristine) {
+          newState.pristine = true;
+          newState.dirty = false;
+        }
+        return newState;
       }
     };
   }, [state.values]);
@@ -216,14 +234,41 @@ export const asForm = <P extends object>(
       const formState = await validatorsRef.current.validate(makePristine);
       if (formState.valid) {
         callback(formState.values);
+      } else if (formSettings && formSettings.onSubmitError) {
+        formSettings.onSubmitError(formState);
       }
+    },
+    [formSettings]
+  );
+
+  const validate = useCallback(
+    (makePristine: boolean = false) => validatorsRef.current.validate(makePristine),
+    []
+  );
+
+  const setValue = useCallback(
+    (field: string, value: any, keepPristine: boolean = false) => {
+      setState(previousState => {
+        const newState = {
+          ...previousState,
+          values: {
+            ...previousState.values,
+            [field]: value
+          }
+        };
+        if (!keepPristine) {
+          newState.dirty = true;
+          newState.pristine = false;
+        }
+        return newState;
+      });
     },
     []
   );
 
   return (
     <FormContext.Provider value={[state, validatorsRef.current, setState]}>
-      <Component asSubmit={asSubmit} formState={state} {...props} />
+      <Component asSubmit={asSubmit} formState={state} validate={validate} setValue={setValue} {...props} />
     </FormContext.Provider>
   );
 };
@@ -365,3 +410,11 @@ export const asField = <V, P extends UseFieldArgs<V>>(
 
   return <Component {...props} {...useFieldResponse} />;
 };
+
+interface FormSettingsProviderProps {
+  settings: FormSettings|null
+};
+
+export const FormSettingsProvider = ({ settings, ...props }: FormSettingsProviderProps & object) => (
+  <FormSettingsContext.Provider {...props} value={settings} />
+)
