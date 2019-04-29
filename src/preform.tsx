@@ -3,6 +3,7 @@ import React, {
   useContext,
   useState,
   useRef,
+  useMemo,
   useEffect,
   SyntheticEvent
 } from "react";
@@ -63,7 +64,7 @@ interface FormValidators {
 interface AsFormInjectedProps {
   formState: FormState;
   validate: (makePristine?: boolean) => Promise<FormState>;
-  setValue: (field: string, value: any, makePristine?: boolean) => void;
+  setValue: (field: string, value: any, keepPristine?: boolean) => void;
   asSubmit: AsSubmit;
 }
 
@@ -82,16 +83,30 @@ interface UseFieldResponse<V> {
   error?: Error | null;
 }
 
+interface UseFormApiResponse {
+  formState: FormState;
+  validate: ValidateAll;
+  setValue: SetFieldValue;
+};
+
 interface FormSettings {
   onSubmitError: (state: FormState) => any;
 }
 
 const FormSettingsContext = React.createContext<FormSettings|null>(null);
 
-const FormContext = React.createContext<
-  | [FormState, FormValidators, React.Dispatch<React.SetStateAction<FormState>>]
-  | null
->(null);
+type ValidateAll = (makePristine?: boolean) => Promise<FormState>;
+type SetFieldValue = (field: string, value: any, keepPristine?: boolean) => void;
+
+type FormContextValue = [
+  FormState,
+  FormValidators,
+  React.Dispatch<React.SetStateAction<FormState>>,
+  ValidateAll,
+  SetFieldValue,
+] | null;
+
+const FormContext = React.createContext<FormContextValue>(null);
 
 export const asForm = <P extends object>(
   Component: React.ComponentType<P & AsFormInjectedProps>
@@ -241,7 +256,7 @@ export const asForm = <P extends object>(
     [formSettings]
   );
 
-  const validate = useCallback(
+  const validate: ValidateAll = useCallback(
     (makePristine: boolean = false) => validatorsRef.current.validate(makePristine),
     []
   );
@@ -266,8 +281,12 @@ export const asForm = <P extends object>(
     []
   );
 
+  const formContextValue: FormContextValue = useMemo(() => ([
+    state, validatorsRef.current, setState, validate, setValue
+  ]), [state, validatorsRef.current, setState, validate, setValue]);
+
   return (
-    <FormContext.Provider value={[state, validatorsRef.current, setState]}>
+    <FormContext.Provider value={formContextValue}>
       <Component asSubmit={asSubmit} formState={state} validate={validate} setValue={setValue} {...props} />
     </FormContext.Provider>
   );
@@ -396,6 +415,21 @@ export const useFormState = () => {
   const [state] = ctx;
 
   return state;
+};
+
+export const useFormApi = (): UseFormApiResponse => {
+  const ctx = useContext(FormContext);
+  if (!ctx) {
+    throw new Error("useFormState was being called outside a form");
+  }
+
+  const [state,,, validate, setValue] = ctx;
+
+  return {
+    formState: state,
+    validate,
+    setValue
+  };
 };
 
 export const asField = <V, P extends UseFieldArgs<V>>(

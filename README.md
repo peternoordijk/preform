@@ -2,7 +2,9 @@
 $ npm install preform
 ```
 
-This library is still in beta. I will take the time to write some docs later. Basically the entire api can be found with the example code below. Creating the library I focused on the following:
+Create forms in React the easy way!
+
+This library is still in beta. I will take the time to write some docs later. Basically the most important part of the api can be found with the example code below. Creating the library I focused on the following:
 
 - Efficiency (no unnecessary render calls from react)
 - Lightweight (less than 10kb)
@@ -15,7 +17,7 @@ Other libraries might have more features out of the box. With this library it's 
 ```jsx
 import React, { useCallback } from "react";
 import { render } from "react-dom";
-import { asForm, useField, FormSettingsProvider } from "./preform";
+import { asForm, useField, FormSettingsProvider } from "preform";
  
 const SomeInputField = ({ field, initialValue, validator }) => {
   const { error, setValue, validate, value } = useField({

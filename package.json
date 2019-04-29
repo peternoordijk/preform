@@ -1,6 +1,6 @@
 {
   "name": "preform",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "description": "A lightweight React library for forms",
   "keywords": ["react", "forms", "input", "form", "text"],
   "main": "dist/preform.umd.js",
