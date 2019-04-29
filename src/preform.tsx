@@ -103,7 +103,7 @@ type FormContextValue = [
   FormValidators,
   React.Dispatch<React.SetStateAction<FormState>>,
   ValidateAll,
-  SetFieldValue,
+  SetFieldValue
 ] | null;
 
 const FormContext = React.createContext<FormContextValue>(null);
@@ -281,7 +281,7 @@ export const asForm = <P extends object>(
     []
   );
 
-  const formContextValue: FormContextValue = useMemo(() => ([
+  const formContextValue: FormContextValue = useMemo((): FormContextValue => ([
     state, validatorsRef.current, setState, validate, setValue
   ]), [state, validatorsRef.current, setState, validate, setValue]);
 
