@@ -265,6 +265,7 @@ const Input = (props) => {...}
 const MyForm = (props) => {
   const { validate } = useFormApi();
 
+  // Check the useSubmit hook to write this callback more efficiently!
   const handleSubmit = async (event) => {
     // Prevent the page from reloading
     event.preventDefault();
@@ -299,6 +300,34 @@ const MyForm = (props) => {
 };
 
 export default asForm(MyForm);
+```
+
+## useSubmit
+
+This function has almost the same signature as [useCallback](https://reactjs.org/docs/hooks-reference.html#usecallback), only it makes sure the form has been validated successfully before the callback is being called. So from our example above we can rewrite this:
+
+```js
+const handleSubmit = useCallback(async (event) => {
+  // Prevent the page from reloading
+  event.preventDefault();
+
+  const formState = await validate();
+  if (formState.valid) {
+    // In here you might want to make an API call or something like that
+    await request(formState.values);
+    console.log('Done!');
+  }
+}, [request, validate]);
+```
+
+To this:
+
+```js
+const handleSubmit = useSubmit(async (values) => {
+  // In here you might want to make an API call or something like that
+  await request(values);
+  console.log('Done!');
+}, [request]);
 ```
 
 ## Extra functions

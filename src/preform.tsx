@@ -5,11 +5,16 @@ import React, {
   useRef,
   useMemo,
   useEffect,
+  DependencyList,
   SyntheticEvent
 } from "react";
 
 interface FormErrors {
   [key: string]: Error;
+}
+
+interface DirtyFields {
+  [key: string]: boolean;
 }
 
 interface FormValues {
@@ -38,20 +43,28 @@ interface FormState {
   loading: boolean;
   dirty: boolean;
   pristine: boolean;
+  dirtyFields: DirtyFields;
   errors: FormErrors;
 }
 
+interface ValidateSettings {
+  makePristine?: boolean
+};
+
+interface SubmitSettings extends ValidateSettings {
+  shouldPreventDefault?: boolean
+};
+
 type AsSubmit = (
   callback: (values: FormValues) => any,
-  resetPristine: boolean,
-  shouldPreventDefault: boolean
+  settings?: SubmitSettings
 ) => (event?: SyntheticEvent) => void;
 
 interface FormValidators {
   /**
    * If makePristine is set to true it will make pristine = true after validating without errors
    */
-  validate: (makePristine: boolean) => Promise<FormState>;
+  validate: (settings?: ValidateSettings) => Promise<FormState>;
 
   /**
    * This function validates an individual field without actually updating the state
@@ -61,10 +74,14 @@ interface FormValidators {
   asSubmit: AsSubmit;
 }
 
+interface SetValueSettings {
+  keepPristine?: boolean
+};
+
 interface AsFormInjectedProps {
   formState: FormState;
-  validate: (makePristine?: boolean) => Promise<FormState>;
-  setValue: (field: string, value: any, keepPristine?: boolean) => void;
+  validate: (settings?: ValidateSettings) => Promise<FormState>;
+  setValue: (field: string, value: any, settings?: SetValueSettings) => void;
   asSubmit: AsSubmit;
 }
 
@@ -72,15 +89,18 @@ interface UseFieldArgs<V> {
   validator?: FormFieldValidator;
   field: string;
   initialValue?: V;
+  forceInitialValue?: boolean
 }
 
-type SetValue<V> = (value: V, keepPristine?: boolean) => void;
+type SetValue<V> = (value: V, settings?: SetValueSettings) => void;
 
 interface UseFieldResponse<V> {
   value: any;
   setValue: SetValue<V>;
   validate: () => void;
   error?: Error | null;
+  dirty: boolean;
+  pristine: boolean;
 }
 
 interface UseFormApiResponse {
@@ -93,10 +113,10 @@ interface FormSettings {
   onSubmitError: (state: FormState) => any;
 }
 
-const FormSettingsContext = React.createContext<FormSettings|null>(null);
+const FormSettingsContext = React.createContext<FormSettings | null>(null);
 
-type ValidateAll = (makePristine?: boolean) => Promise<FormState>;
-type SetFieldValue = (field: string, value: any, keepPristine?: boolean) => void;
+type ValidateAll = (settings?: ValidateSettings) => Promise<FormState>;
+type SetFieldValue = (field: string, value: any, settings?: SetValueSettings) => void;
 
 type FormContextValue = [
   FormState,
@@ -117,6 +137,7 @@ export const asForm = <P extends object>(
     invalid: false,
     loading: false,
     errors: {},
+    dirtyFields: {},
     dirty: false,
     pristine: true
   });
@@ -127,7 +148,7 @@ export const asForm = <P extends object>(
     fieldValidators: {},
     validateField: () => Promise.resolve(null),
     validate: () => Promise.resolve(state),
-    asSubmit: () => () => {}
+    asSubmit: () => () => { }
   });
 
   useEffect(() => {
@@ -142,7 +163,7 @@ export const asForm = <P extends object>(
       }
       return error instanceof Error ? error : new Error(error);
     };
-    validatorsRef.current.validate = async (makePristine: boolean) => {
+    validatorsRef.current.validate = async ({ makePristine = false }: ValidateSettings = {}) => {
       const immutableValues: FormValues = {
         ...state.values
       };
@@ -162,9 +183,9 @@ export const asForm = <P extends object>(
           );
           return error
             ? {
-                key,
-                error
-              }
+              key,
+              error
+            }
             : null;
         } catch (error) {
           return {
@@ -215,6 +236,7 @@ export const asForm = <P extends object>(
           if (makePristine) {
             nextState.pristine = true;
             nextState.dirty = false;
+            nextState.dirtyFields = {};
           }
           return nextState;
         });
@@ -228,6 +250,7 @@ export const asForm = <P extends object>(
         if (makePristine) {
           newState.pristine = true;
           newState.dirty = false;
+          newState.dirtyFields = {};
         }
         return newState;
       }
@@ -235,7 +258,7 @@ export const asForm = <P extends object>(
   }, [state.values]);
 
   const asSubmit: AsSubmit = useCallback(
-    (callback, makePristine = true, shouldPreventDefault = true) => async (
+    (callback, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}) => async (
       event?: SyntheticEvent
     ) => {
       if (event && shouldPreventDefault) {
@@ -246,7 +269,7 @@ export const asForm = <P extends object>(
           event.stopPropagation();
         }
       }
-      const formState = await validatorsRef.current.validate(makePristine);
+      const formState = await validatorsRef.current.validate({ makePristine });
       if (formState.valid) {
         callback(formState.values);
       } else if (formSettings && formSettings.onSubmitError) {
@@ -257,12 +280,12 @@ export const asForm = <P extends object>(
   );
 
   const validate: ValidateAll = useCallback(
-    (makePristine: boolean = false) => validatorsRef.current.validate(makePristine),
+    ({ makePristine = false }: ValidateSettings = {}) => validatorsRef.current.validate({ makePristine }),
     []
   );
 
   const setValue = useCallback(
-    (field: string, value: any, keepPristine: boolean = false) => {
+    (field: string, value: any, { keepPristine = false }: SetValueSettings = {}) => {
       setState(previousState => {
         const newState = {
           ...previousState,
@@ -274,6 +297,10 @@ export const asForm = <P extends object>(
         if (!keepPristine) {
           newState.dirty = true;
           newState.pristine = false;
+          newState.dirtyFields = {
+            ...previousState.dirtyFields,
+            [field]: true
+          };
         }
         return newState;
       });
@@ -292,9 +319,12 @@ export const asForm = <P extends object>(
   );
 };
 
+const valueCanUpdateSafely = (val: any) => typeof val !== 'object' || val === null;
+
 export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
   validator,
   field,
+  forceInitialValue = false,
   initialValue
 }) => {
   const ctx = useContext(FormContext);
@@ -302,29 +332,18 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
     throw new Error("useField was being called outside a form");
   }
 
-  const [state, formValidators, setState] = ctx;
+  const [state, formValidators, setState, , setFieldValue] = ctx;
 
   const value = field in state.values ? state.values[field] : initialValue;
   const error = state.errors && state.errors[field];
+  const pristine = !state.dirtyFields[field];
+  const dirty = !pristine;
 
   const setValue = useCallback(
-    (value: any, keepPristine: boolean = false) => {
-      setState(previousState => {
-        const newState = {
-          ...previousState,
-          values: {
-            ...previousState.values,
-            [field]: value
-          }
-        };
-        if (!keepPristine) {
-          newState.dirty = true;
-          newState.pristine = false;
-        }
-        return newState;
-      });
+    (value: any, settings: SetValueSettings = {}) => {
+      setFieldValue(field, value, settings);
     },
-    [field]
+    [field, setFieldValue]
   );
 
   useEffect(() => {
@@ -374,10 +393,25 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
   }, [field, validator, formValidators]);
 
   useEffect(() => {
+    if (!(field in state.values) || (
+      pristine && state.values[field] !== initialValue
+      // Prevent infinite loops
+      && (
+        forceInitialValue ||
+        (
+          valueCanUpdateSafely(state.values[field])
+          && valueCanUpdateSafely(initialValue)
+        )
+      )
+    )) {
+      setValue(initialValue, { keepPristine: true });
+    }
+  }, [field, initialValue, pristine, forceInitialValue]);
+
+  useEffect(() => {
     if (field in state.values) {
       return () => {};
     }
-    setValue(initialValue, true);
 
     return () => {
       setState(previousState => {
@@ -389,8 +423,16 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
           ...previousState.errors
         };
         delete newErrors[field];
+        const newDirtyFields = {
+          ...previousState.dirtyFields
+        };
+        delete newDirtyFields[field];
+        const newPristine = !Object.keys(newDirtyFields).length;
         return {
           ...previousState,
+          pristine: newPristine,
+          dirty: !newPristine,
+          dirtyFields: newDirtyFields,
           values: newValues,
           errors: newErrors
         };
@@ -402,6 +444,8 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
     value,
     setValue,
     validate,
+    dirty,
+    pristine,
     error
   };
 };
@@ -409,7 +453,7 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
 export const useFormState = () => {
   const ctx = useContext(FormContext);
   if (!ctx) {
-    throw new Error("useFormState was being called outside a form");
+    throw new Error("useFormState was called outside a form");
   }
 
   const [state] = ctx;
@@ -420,10 +464,10 @@ export const useFormState = () => {
 export const useFormApi = (): UseFormApiResponse => {
   const ctx = useContext(FormContext);
   if (!ctx) {
-    throw new Error("useFormState was being called outside a form");
+    throw new Error("useFormApi was called outside a form");
   }
 
-  const [state,,, validate, setValue] = ctx;
+  const [state, , , validate, setValue] = ctx;
 
   return {
     formState: state,
@@ -446,9 +490,38 @@ export const asField = <V, P extends UseFieldArgs<V>>(
 };
 
 interface FormSettingsProviderProps {
-  settings: FormSettings|null
+  settings: FormSettings | null
 };
 
 export const FormSettingsProvider = ({ settings, ...props }: FormSettingsProviderProps & object) => (
   <FormSettingsContext.Provider {...props} value={settings} />
 )
+
+export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
+  const ctx = useContext(FormContext);
+  if (!ctx) {
+    throw new Error("useSubmit was called outside a form");
+  }
+
+  const [, , , validate] = ctx;
+  const formSettings = useContext(FormSettingsContext);
+
+  return useCallback(async (
+    event?: SyntheticEvent
+  ) => {
+    if (event && shouldPreventDefault) {
+      if (event.preventDefault) {
+        event.preventDefault();
+      }
+      if (event.stopPropagation) {
+        event.stopPropagation();
+      }
+    }
+    const formState = await validate({ makePristine });
+    if (formState.valid) {
+      callback(formState.values);
+    } else if (formSettings && formSettings.onSubmitError) {
+      formSettings.onSubmitError(formState);
+    }
+  }, [...deps, makePristine, shouldPreventDefault, validate, formSettings && formSettings.onSubmitError]);
+};
