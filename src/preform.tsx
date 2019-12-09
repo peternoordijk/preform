@@ -60,6 +60,8 @@ type AsSubmit = (
   settings?: SubmitSettings
 ) => (event?: SyntheticEvent) => void;
 
+type MakePristine = () => void;
+
 interface FormValidators {
   /**
    * If makePristine is set to true it will make pristine = true after validating without errors
@@ -107,6 +109,7 @@ interface UseFormApiResponse {
   formState: FormState;
   validate: ValidateAll;
   setValue: SetFieldValue;
+  makePristine: MakePristine;
 };
 
 interface FormSettings {
@@ -123,7 +126,8 @@ type FormContextValue = [
   FormValidators,
   React.Dispatch<React.SetStateAction<FormState>>,
   ValidateAll,
-  SetFieldValue
+  SetFieldValue,
+  MakePristine
 ] | null;
 
 const FormContext = React.createContext<FormContextValue>(null);
@@ -258,7 +262,7 @@ export const asForm = <P extends object>(
   }, [state.values]);
 
   const asSubmit: AsSubmit = useCallback(
-    (callback, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}) => async (
+    (callback, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}) => async (
       event?: SyntheticEvent
     ) => {
       if (event && shouldPreventDefault) {
@@ -308,13 +312,25 @@ export const asForm = <P extends object>(
     []
   );
 
+  const makePristine = useCallback(
+    () => {
+      setState(previousState => ({
+        ...previousState,
+        dirty: false,
+        pristine: true,
+        dirtyFields: {}
+      }))
+    },
+    []
+  );
+
   const formContextValue: FormContextValue = useMemo((): FormContextValue => ([
-    state, validatorsRef.current, setState, validate, setValue
+    state, validatorsRef.current, setState, validate, setValue, makePristine
   ]), [state, validatorsRef.current, setState, validate, setValue]);
 
   return (
     <FormContext.Provider value={formContextValue}>
-      <Component asSubmit={asSubmit} formState={state} validate={validate} setValue={setValue} {...props} />
+      <Component asSubmit={asSubmit} formState={state} validate={validate} setValue={setValue} makePristine={makePristine} {...props} />
     </FormContext.Provider>
   );
 };
@@ -467,12 +483,13 @@ export const useFormApi = (): UseFormApiResponse => {
     throw new Error("useFormApi was called outside a form");
   }
 
-  const [state, , , validate, setValue] = ctx;
+  const [state, , , validate, setValue, makePristine] = ctx;
 
   return {
     formState: state,
     validate,
-    setValue
+    setValue,
+    makePristine
   };
 };
 
@@ -497,7 +514,7 @@ export const FormSettingsProvider = ({ settings, ...props }: FormSettingsProvide
   <FormSettingsContext.Provider {...props} value={settings} />
 )
 
-export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
+export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
   const ctx = useContext(FormContext);
   if (!ctx) {
     throw new Error("useSubmit was called outside a form");
