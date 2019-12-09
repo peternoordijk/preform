@@ -103,6 +103,7 @@ interface UseFieldResponse<V> {
   error?: Error | null;
   dirty: boolean;
   pristine: boolean;
+  makePristine: MakePristine;
 }
 
 interface UseFormApiResponse {
@@ -261,8 +262,20 @@ export const asForm = <P extends object>(
     };
   }, [state.values]);
 
+  const makeFormPristine = useCallback(
+    () => {
+      setState(previousState => ({
+        ...previousState,
+        dirty: false,
+        pristine: true,
+        dirtyFields: {}
+      }))
+    },
+    []
+  );
+
   const asSubmit: AsSubmit = useCallback(
-    (callback, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}) => async (
+    (callback, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}) => async (
       event?: SyntheticEvent
     ) => {
       if (event && shouldPreventDefault) {
@@ -273,14 +286,17 @@ export const asForm = <P extends object>(
           event.stopPropagation();
         }
       }
-      const formState = await validatorsRef.current.validate({ makePristine });
+      const formState = await validatorsRef.current.validate();
       if (formState.valid) {
-        callback(formState.values);
+        await callback(formState.values);
+        if (makePristine) {
+          makeFormPristine();
+        }
       } else if (formSettings && formSettings.onSubmitError) {
         formSettings.onSubmitError(formState);
       }
     },
-    [formSettings]
+    [formSettings, makeFormPristine]
   );
 
   const validate: ValidateAll = useCallback(
@@ -312,25 +328,13 @@ export const asForm = <P extends object>(
     []
   );
 
-  const makePristine = useCallback(
-    () => {
-      setState(previousState => ({
-        ...previousState,
-        dirty: false,
-        pristine: true,
-        dirtyFields: {}
-      }))
-    },
-    []
-  );
-
   const formContextValue: FormContextValue = useMemo((): FormContextValue => ([
-    state, validatorsRef.current, setState, validate, setValue, makePristine
+    state, validatorsRef.current, setState, validate, setValue, makeFormPristine
   ]), [state, validatorsRef.current, setState, validate, setValue]);
 
   return (
     <FormContext.Provider value={formContextValue}>
-      <Component asSubmit={asSubmit} formState={state} validate={validate} setValue={setValue} makePristine={makePristine} {...props} />
+      <Component asSubmit={asSubmit} formState={state} validate={validate} setValue={setValue} makePristine={makeFormPristine} {...props} />
     </FormContext.Provider>
   );
 };
@@ -456,12 +460,29 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
     };
   }, [field]);
 
+  const makePristine = useCallback(() => {
+    setState(previousState => {
+      const newDirtyFields = {
+        ...previousState.dirtyFields
+      };
+      delete newDirtyFields[field];
+      const newPristine = !Object.keys(newDirtyFields).length;
+      return {
+        ...previousState,
+        pristine: newPristine,
+        dirty: !newPristine,
+        dirtyFields: newDirtyFields
+      };
+    });
+  }, [field]);
+
   return {
     value,
     setValue,
     validate,
     dirty,
     pristine,
+    makePristine,
     error
   };
 };
@@ -514,13 +535,13 @@ export const FormSettingsProvider = ({ settings, ...props }: FormSettingsProvide
   <FormSettingsContext.Provider {...props} value={settings} />
 )
 
-export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
+export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
   const ctx = useContext(FormContext);
   if (!ctx) {
     throw new Error("useSubmit was called outside a form");
   }
 
-  const [, , , validate] = ctx;
+  const [, , , validate,, makeFormPristine] = ctx;
   const formSettings = useContext(FormSettingsContext);
 
   return useCallback(async (
@@ -534,9 +555,12 @@ export const useSubmit = <T extends (values: FormValues) => any>(callback: T, de
         event.stopPropagation();
       }
     }
-    const formState = await validate({ makePristine });
+    const formState = await validate();
     if (formState.valid) {
-      callback(formState.values);
+      await callback(formState.values);
+      if (makePristine) {
+        makeFormPristine();
+      }
     } else if (formSettings && formSettings.onSubmitError) {
       formSettings.onSubmitError(formState);
     }
