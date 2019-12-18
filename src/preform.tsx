@@ -275,7 +275,7 @@ export const asForm = <P extends object>(
   );
 
   const asSubmit: AsSubmit = useCallback(
-    (callback, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}) => async (
+    (callback, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}) => async (
       event?: SyntheticEvent
     ) => {
       if (event && shouldPreventDefault) {
@@ -535,7 +535,7 @@ export const FormSettingsProvider = ({ settings, ...props }: FormSettingsProvide
   <FormSettingsContext.Provider {...props} value={settings} />
 )
 
-export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = true, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
+export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
   const ctx = useContext(FormContext);
   if (!ctx) {
     throw new Error("useSubmit was called outside a form");
