@@ -236,6 +236,9 @@ The `formState` is an object with the following signature:
   dirty: boolean;
   // pristine is simply the opposite of the dirty attribute
   pristine: boolean;
+  // submitted is always true if dirty is false, but it can also become true when a submit was successful 
+  // (with dirty being true)
+  submitted: boolean;
   // errors is a map in which all current errors are stored
   errors: {
     field: Error

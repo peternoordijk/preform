@@ -41,6 +41,7 @@ interface FormState {
   valid: boolean;
   invalid: boolean;
   loading: boolean;
+  submitted: boolean;
   dirty: boolean;
   pristine: boolean;
   dirtyFields: DirtyFields;
@@ -48,11 +49,12 @@ interface FormState {
 }
 
 interface ValidateSettings {
-  makePristine?: boolean
+  makeSubmitted?: boolean;
+  makePristine?: boolean;
 };
 
 interface SubmitSettings extends ValidateSettings {
-  shouldPreventDefault?: boolean
+  shouldPreventDefault?: boolean;
 };
 
 type AsSubmit = (
@@ -61,6 +63,7 @@ type AsSubmit = (
 ) => (event?: SyntheticEvent) => void;
 
 type MakePristine = () => void;
+type MakeSubmitted = () => void;
 
 interface FormValidators {
   /**
@@ -128,7 +131,8 @@ type FormContextValue = [
   React.Dispatch<React.SetStateAction<FormState>>,
   ValidateAll,
   SetFieldValue,
-  MakePristine
+  MakePristine,
+  MakeSubmitted
 ] | null;
 
 const FormContext = React.createContext<FormContextValue>(null);
@@ -144,6 +148,7 @@ export const asForm = <P extends object>(
     errors: {},
     dirtyFields: {},
     dirty: false,
+    submitted: true,
     pristine: true
   });
 
@@ -168,7 +173,7 @@ export const asForm = <P extends object>(
       }
       return error instanceof Error ? error : new Error(error);
     };
-    validatorsRef.current.validate = async ({ makePristine = false }: ValidateSettings = {}) => {
+    validatorsRef.current.validate = async ({ makePristine = false, makeSubmitted = false }: ValidateSettings = {}) => {
       const immutableValues: FormValues = {
         ...state.values
       };
@@ -242,6 +247,9 @@ export const asForm = <P extends object>(
             nextState.pristine = true;
             nextState.dirty = false;
             nextState.dirtyFields = {};
+            nextState.submitted = true;
+          } else if (makeSubmitted) {
+            nextState.submitted = true;
           }
           return nextState;
         });
@@ -256,6 +264,9 @@ export const asForm = <P extends object>(
           newState.pristine = true;
           newState.dirty = false;
           newState.dirtyFields = {};
+          newState.submitted = true;
+        } else if (makeSubmitted) {
+          newState.submitted = true;
         }
         return newState;
       }
@@ -266,6 +277,7 @@ export const asForm = <P extends object>(
     () => {
       setState(previousState => ({
         ...previousState,
+        submitted: true,
         dirty: false,
         pristine: true,
         dirtyFields: {}
@@ -274,8 +286,18 @@ export const asForm = <P extends object>(
     []
   );
 
+  const makeFormSubmitted = useCallback(
+    () => {
+      setState(previousState => ({
+        ...previousState,
+        submitted: true
+      }))
+    },
+    []
+  );
+
   const asSubmit: AsSubmit = useCallback(
-    (callback, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}) => async (
+    (callback, { makePristine = false, shouldPreventDefault = true, makeSubmitted = true }: SubmitSettings = {}) => async (
       event?: SyntheticEvent
     ) => {
       if (event && shouldPreventDefault) {
@@ -291,6 +313,8 @@ export const asForm = <P extends object>(
         await callback(formState.values);
         if (makePristine) {
           makeFormPristine();
+        } else if (makeSubmitted) {
+          makeFormSubmitted();
         }
       } else if (formSettings && formSettings.onSubmitError) {
         formSettings.onSubmitError(formState);
@@ -300,7 +324,7 @@ export const asForm = <P extends object>(
   );
 
   const validate: ValidateAll = useCallback(
-    ({ makePristine = false }: ValidateSettings = {}) => validatorsRef.current.validate({ makePristine }),
+    ({ makePristine = false, makeSubmitted = false }: ValidateSettings = {}) => validatorsRef.current.validate({ makePristine, makeSubmitted }),
     []
   );
 
@@ -315,6 +339,7 @@ export const asForm = <P extends object>(
           }
         };
         if (!keepPristine) {
+          newState.submitted = false;
           newState.dirty = true;
           newState.pristine = false;
           newState.dirtyFields = {
@@ -329,8 +354,8 @@ export const asForm = <P extends object>(
   );
 
   const formContextValue: FormContextValue = useMemo((): FormContextValue => ([
-    state, validatorsRef.current, setState, validate, setValue, makeFormPristine
-  ]), [state, validatorsRef.current, setState, validate, setValue]);
+    state, validatorsRef.current, setState, validate, setValue, makeFormPristine, makeFormSubmitted
+  ]), [state, validatorsRef.current, setState, validate, setValue, makeFormSubmitted]);
 
   return (
     <FormContext.Provider value={formContextValue}>
@@ -535,13 +560,13 @@ export const FormSettingsProvider = ({ settings, ...props }: FormSettingsProvide
   <FormSettingsContext.Provider {...props} value={settings} />
 )
 
-export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = false, shouldPreventDefault = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
+export const useSubmit = <T extends (values: FormValues) => any>(callback: T, deps: DependencyList, { makePristine = false, shouldPreventDefault = true, makeSubmitted = true }: SubmitSettings = {}): (event?: SyntheticEvent) => Promise<void> => {
   const ctx = useContext(FormContext);
   if (!ctx) {
     throw new Error("useSubmit was called outside a form");
   }
 
-  const [, , , validate,, makeFormPristine] = ctx;
+  const [, , , validate,, makeFormPristine, makeFormSubmitted] = ctx;
   const formSettings = useContext(FormSettingsContext);
 
   return useCallback(async (
@@ -560,6 +585,8 @@ export const useSubmit = <T extends (values: FormValues) => any>(callback: T, de
       await callback(formState.values);
       if (makePristine) {
         makeFormPristine();
+      } else if (makeSubmitted) {
+        makeFormSubmitted();
       }
     } else if (formSettings && formSettings.onSubmitError) {
       formSettings.onSubmitError(formState);
