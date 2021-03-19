@@ -63,6 +63,7 @@ type AsSubmit = (
 ) => (event?: SyntheticEvent) => void;
 
 type MakePristine = () => void;
+type Reset = () => void;
 type MakeSubmitted = () => void;
 
 interface FormValidators {
@@ -98,6 +99,7 @@ interface UseFieldArgs<V> {
 }
 
 type SetValue<V> = (value: V, settings?: SetValueSettings) => void;
+type SetValues = (values: {[key: string]: any}, settings?: SetValueSettings) => void;
 
 interface UseFieldResponse<V> {
   value: any;
@@ -113,7 +115,9 @@ interface UseFormApiResponse {
   formState: FormState;
   validate: ValidateAll;
   setValue: SetFieldValue;
+  setValues: SetValues;
   makePristine: MakePristine;
+  reset: Reset;
 };
 
 interface FormSettings {
@@ -131,8 +135,10 @@ type FormContextValue = [
   React.Dispatch<React.SetStateAction<FormState>>,
   ValidateAll,
   SetFieldValue,
+  SetValues,
   MakePristine,
-  MakeSubmitted
+  MakeSubmitted,
+  Reset
 ] | null;
 
 const FormContext = React.createContext<FormContextValue>(null);
@@ -177,7 +183,7 @@ export const asForm = <P extends object>(
       const immutableValues: FormValues = {
         ...state.values
       };
-      setState(prevState => ({
+      setState((prevState: FormState) => ({
         ...prevState,
         valid: true,
         invalid: false,
@@ -220,7 +226,7 @@ export const asForm = <P extends object>(
       });
 
       if (hasErrors) {
-        setState(prevState => ({
+        setState((prevState: FormState) => ({
           ...prevState,
           valid: false,
           invalid: true,
@@ -235,7 +241,7 @@ export const asForm = <P extends object>(
           errors
         };
       } else {
-        setState(prevState => {
+        setState((prevState: FormState) => {
           const nextState = {
             ...prevState,
             valid: true,
@@ -275,7 +281,7 @@ export const asForm = <P extends object>(
 
   const makeFormPristine = useCallback(
     () => {
-      setState(previousState => ({
+      setState((previousState: FormState) => ({
         ...previousState,
         submitted: true,
         dirty: false,
@@ -286,9 +292,26 @@ export const asForm = <P extends object>(
     []
   );
 
+  const reset = useCallback(
+    () => {
+      setState({
+        values: {},
+        valid: true,
+        invalid: false,
+        loading: false,
+        errors: {},
+        dirtyFields: {},
+        dirty: false,
+        submitted: true,
+        pristine: true
+      })
+    },
+    []
+  );
+
   const makeFormSubmitted = useCallback(
     () => {
-      setState(previousState => ({
+      setState((previousState: FormState) => ({
         ...previousState,
         submitted: true
       }))
@@ -297,7 +320,7 @@ export const asForm = <P extends object>(
   );
 
   const asSubmit: AsSubmit = useCallback(
-    (callback, { makePristine = false, shouldPreventDefault = true, makeSubmitted = true }: SubmitSettings = {}) => async (
+    (callback: (values: FormValues) => any, { makePristine = false, shouldPreventDefault = true, makeSubmitted = true }: SubmitSettings = {}) => async (
       event?: SyntheticEvent
     ) => {
       if (event && shouldPreventDefault) {
@@ -328,9 +351,40 @@ export const asForm = <P extends object>(
     []
   );
 
+  const setValues = useCallback(
+    (fields: {[key:string]: any}, { keepPristine = false }: SetValueSettings = {}) => {
+      const keys = Object.keys(fields);
+      if (!keys.length) {
+        return;
+      }
+      setState((previousState: FormState) => {
+        const newState = {
+          ...previousState,
+          values: {
+            ...previousState.values,
+            ...fields
+          }
+        };
+        if (!keepPristine) {
+          newState.submitted = false;
+          newState.dirty = true;
+          newState.pristine = false;
+          newState.dirtyFields = {
+            ...previousState.dirtyFields,
+          };
+          keys.forEach(key => {
+            newState.dirtyFields[key] = true;
+          });
+        }
+        return newState;
+      });
+    },
+    []
+  );
+
   const setValue = useCallback(
     (field: string, value: any, { keepPristine = false }: SetValueSettings = {}) => {
-      setState(previousState => {
+      setState((previousState: FormState) => {
         const newState = {
           ...previousState,
           values: {
@@ -354,8 +408,8 @@ export const asForm = <P extends object>(
   );
 
   const formContextValue: FormContextValue = useMemo((): FormContextValue => ([
-    state, validatorsRef.current, setState, validate, setValue, makeFormPristine, makeFormSubmitted
-  ]), [state, validatorsRef.current, setState, validate, setValue, makeFormSubmitted]);
+    state, validatorsRef.current, setState, validate, setValue, setValues, makeFormPristine, makeFormSubmitted, reset
+  ]), [state, validatorsRef.current, setState, validate, setValue, setValues, makeFormPristine, makeFormSubmitted, reset]);
 
   return (
     <FormContext.Provider value={formContextValue}>
@@ -405,7 +459,7 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
     };
     try {
       const error = await formValidators.validateField(field, immutableValues);
-      setState(previousState => {
+      setState((previousState: FormState) => {
         const newErrors: FormErrors = {
           ...previousState.errors
         };
@@ -425,7 +479,7 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
         };
       });
     } catch (error) {
-      setState(previousState => ({
+      setState((previousState: FormState) => ({
         ...previousState,
         errors: {
           ...previousState.errors,
@@ -459,7 +513,7 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
     }
 
     return () => {
-      setState(previousState => {
+      setState((previousState: FormState) => {
         const newValues = {
           ...previousState.values
         };
@@ -486,7 +540,7 @@ export const useField: <V>(args: UseFieldArgs<V>) => UseFieldResponse<V> = ({
   }, [field]);
 
   const makePristine = useCallback(() => {
-    setState(previousState => {
+    setState((previousState: FormState) => {
       const newDirtyFields = {
         ...previousState.dirtyFields
       };
@@ -529,13 +583,15 @@ export const useFormApi = (): UseFormApiResponse => {
     throw new Error("useFormApi was called outside a form");
   }
 
-  const [state, , , validate, setValue, makePristine] = ctx;
+  const [state, , , validate, setValue, setValues, makePristine, reset] = ctx;
 
   return {
     formState: state,
     validate,
     setValue,
-    makePristine
+    setValues,
+    makePristine,
+    reset
   };
 };
 
@@ -566,7 +622,7 @@ export const useSubmit = <T extends (values: FormValues) => any>(callback: T, de
     throw new Error("useSubmit was called outside a form");
   }
 
-  const [, , , validate,, makeFormPristine, makeFormSubmitted] = ctx;
+  const [, , , validate,,, makeFormPristine, makeFormSubmitted] = ctx;
   const formSettings = useContext(FormSettingsContext);
 
   return useCallback(async (
