@@ -10,7 +10,7 @@
     "text"
   ],
   "main": "dist/preform.umd.js",
-  "module": "dist/preform.es5.js",
+  "module": "dist/lib/preform.js",
   "typings": "dist/types/preform.d.ts",
   "files": [
     "dist"
@@ -89,7 +89,8 @@
   },
   "peerDependencies": {
     "react": ">=16.8",
-    "react-dom": ">=16.8"
+    "react-dom": ">=16.8",
+    "tslib": "^2.2.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^7.1.2",
